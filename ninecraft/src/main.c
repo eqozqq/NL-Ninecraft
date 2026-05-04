@@ -2087,6 +2087,7 @@ int main(int argc, char **argv) {
         mod_loader_execute_on_minecraft_update(ninecraft_app, version_id);
 
         audio_engine_tick();
+        glFinish(); // maybe this will fix flickering
         SDL_GL_SwapWindow(_window);
 
         while (SDL_PollEvent(&event)) {
