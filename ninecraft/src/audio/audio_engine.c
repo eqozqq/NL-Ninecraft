@@ -76,10 +76,91 @@ static float audio_engine_decode_sample(uint8_t *sample_data, uint32_t sample_si
     return sample;
 }
 
-static void audio_engine_mix(audio_engine_stream_t *stream, Uint8 *out_stream, int len) {
-    int sample_count = len / 4;
+static float *audio_engine_mix_buffer = NULL;
+static int audio_engine_mix_buffer_size = 0;
+
+static int audio_engine_try_open(SDL_AudioSpec *desired_spec) {
+    memset(&audio_engine_audio_spec, 0, sizeof(audio_engine_audio_spec));
+    audio_engine_device = SDL_OpenAudioDevice(NULL, 0, desired_spec, &audio_engine_audio_spec, SDL_AUDIO_ALLOW_ANY_CHANGE);
+
+    if (audio_engine_device) {
+        int supported = 0;
+        switch (audio_engine_audio_spec.format) {
+            case AUDIO_S16LSB:
+            case AUDIO_S16MSB:
+            case AUDIO_S32LSB:
+            case AUDIO_S32MSB:
+            case AUDIO_F32LSB:
+            case AUDIO_F32MSB:
+            case AUDIO_U8:
+            case AUDIO_S8:
+                supported = 1;
+                break;
+        }
+        if (!supported) {
+            printf("Audio: unsupported format 0x%x\n", audio_engine_audio_spec.format);
+            SDL_CloseAudioDevice(audio_engine_device);
+            audio_engine_device = 0;
+            return 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static void audio_engine_write_output(float *mix_buf, Uint8 *out_stream, int sample_count) {
+    switch (audio_engine_audio_spec.format) {
+        case AUDIO_F32LSB:
+        case AUDIO_F32MSB:
+            memcpy(out_stream, mix_buf, sample_count * sizeof(float));
+            break;
+        case AUDIO_S16LSB:
+        case AUDIO_S16MSB: {
+            int16_t *out = (int16_t *)out_stream;
+            for (int i = 0; i < sample_count; ++i) {
+                float s = mix_buf[i];
+                if (s > 1.0f) s = 1.0f;
+                if (s < -1.0f) s = -1.0f;
+                out[i] = (int16_t)(s * 32767.0f);
+            }
+            break;
+        }
+        case AUDIO_S32LSB:
+        case AUDIO_S32MSB: {
+            int32_t *out = (int32_t *)out_stream;
+            for (int i = 0; i < sample_count; ++i) {
+                float s = mix_buf[i];
+                if (s > 1.0f) s = 1.0f;
+                if (s < -1.0f) s = -1.0f;
+                out[i] = (int32_t)(s * 2147483647.0f);
+            }
+            break;
+        }
+        case AUDIO_U8: {
+            uint8_t *out = out_stream;
+            for (int i = 0; i < sample_count; ++i) {
+                float s = mix_buf[i];
+                if (s > 1.0f) s = 1.0f;
+                if (s < -1.0f) s = -1.0f;
+                out[i] = (uint8_t)((s * 0.5f + 0.5f) * 255.0f);
+            }
+            break;
+        }
+        case AUDIO_S8: {
+            int8_t *out = (int8_t *)out_stream;
+            for (int i = 0; i < sample_count; ++i) {
+                float s = mix_buf[i];
+                if (s > 1.0f) s = 1.0f;
+                if (s < -1.0f) s = -1.0f;
+                out[i] = (int8_t)(s * 127.0f);
+            }
+            break;
+        }
+    }
+}
+
+static void audio_engine_mix_to_float(audio_engine_stream_t *stream, float *out, int sample_count) {
     int sample_size = stream->bits_per_sample / 8;
-    float *out = (float *)out_stream;
     for (int i = 0; i < sample_count; i += audio_engine_audio_spec.channels) {
         size_t frame_pos = (size_t)stream->sample_pos;
         if (frame_pos >= stream->frame_count - 1) {
@@ -91,7 +172,7 @@ static void audio_engine_mix(audio_engine_stream_t *stream, Uint8 *out_stream, i
         uint8_t *frame2 = &stream->buffer[(frame_pos + 1) * stream->frame_size];
         uint32_t num_channels = (stream->num_channels < audio_engine_audio_spec.channels) ? audio_engine_audio_spec.channels : stream->num_channels;
 
-        for (int ch = 0; ch < num_channels; ++ch) {
+        for (int ch = 0; ch < (int)num_channels; ++ch) {
             size_t idx1 = i + (ch % audio_engine_audio_spec.channels);
             size_t idx2 = (ch % stream->num_channels) * sample_size;
             float sample1 = audio_engine_decode_sample(&frame1[idx2], sample_size, stream->format);
@@ -116,39 +197,84 @@ static void audio_engine_mix(audio_engine_stream_t *stream, Uint8 *out_stream, i
 }
 
 static void SDLCALL audio_engine_audio_callback(void *userdata, Uint8 *stream, int len) {
-    memset(stream, 0, len);
+    int bytes_per_sample = SDL_AUDIO_BITSIZE(audio_engine_audio_spec.format) / 8;
+    int sample_count = len / bytes_per_sample;
+
+    if (sample_count > audio_engine_mix_buffer_size) {
+        audio_engine_mix_buffer = (float *)realloc(audio_engine_mix_buffer, sample_count * sizeof(float));
+        audio_engine_mix_buffer_size = sample_count;
+    }
+
+    memset(audio_engine_mix_buffer, 0, sample_count * sizeof(float));
     for (int i = 0; i < AUDIO_ENGINE_MAX_STREAMS; ++i) {
         audio_engine_stream_t *audio_engine_stream = &audio_engine_streams[i];
         if (audio_engine_stream->active) {
-            audio_engine_mix(audio_engine_stream, stream, len);
+            audio_engine_mix_to_float(audio_engine_stream, audio_engine_mix_buffer, sample_count);
         }
     }
+
+    memset(stream, 0, len);
+    audio_engine_write_output(audio_engine_mix_buffer, stream, sample_count);
 }
 
 void audio_engine_init() {
     if (!audio_engine_initialized) {
         SDL_AudioSpec desired_spec;
+        const char *fallback_drivers[] = {
+            NULL, "pipewire", "pulseaudio", "alsa", "jack", "oss", NULL
+        };
+        int opened = 0;
 
-        if (SDL_Init(SDL_INIT_AUDIO) < 0) {
-            printf("SDL_Init Audio failed: %s\n", SDL_GetError());
-            return;
+        printf("Audio: available SDL drivers:");
+        int num_drivers = SDL_GetNumAudioDrivers();
+        for (int i = 0; i < num_drivers; ++i) {
+            printf(" %s", SDL_GetAudioDriver(i));
         }
+        printf("\n");
 
         memset(&desired_spec, 0, sizeof(desired_spec));
-        memset(&audio_engine_audio_spec, 0, sizeof(audio_engine_audio_spec));
-
         desired_spec.freq = 44100;
         desired_spec.format = AUDIO_F32LSB;
         desired_spec.channels = 2;
         desired_spec.samples = 4096;
         desired_spec.callback = audio_engine_audio_callback;
 
-        audio_engine_device = SDL_OpenAudioDevice(NULL, 0, &desired_spec, &audio_engine_audio_spec, 0);
+        for (int i = 0; fallback_drivers[i] != NULL || i == 0; ++i) {
+            if (fallback_drivers[i] != NULL) {
+                SDL_setenv("SDL_AUDIODRIVER", fallback_drivers[i], 1);
+            }
 
-        if (!audio_engine_device) {
-            printf("SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
+            if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
+                printf("Audio: driver '%s' init failed: %s\n",
+                       fallback_drivers[i] ? fallback_drivers[i] : "default",
+                       SDL_GetError());
+                continue;
+            }
+
+            if (audio_engine_try_open(&desired_spec)) {
+                printf("Audio: using driver '%s'\n",
+                       SDL_GetCurrentAudioDriver());
+                opened = 1;
+                break;
+            }
+
+            printf("Audio: driver '%s' device open failed: %s\n",
+                   SDL_GetCurrentAudioDriver(),
+                   SDL_GetError());
+            SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        }
+
+        if (!opened) {
+            printf("Audio: failed to open any audio device\n");
             return;
         }
+
+        printf("Audio: device opened (%s, %dHz, %dch, %d samples, fmt=0x%x)\n",
+               SDL_GetCurrentAudioDriver(),
+               audio_engine_audio_spec.freq,
+               audio_engine_audio_spec.channels,
+               audio_engine_audio_spec.samples,
+               audio_engine_audio_spec.format);
 
         SDL_PauseAudioDevice(audio_engine_device, 0);
         memset(audio_engine_streams, 0, sizeof(audio_engine_streams));
