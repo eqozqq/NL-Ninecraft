@@ -964,6 +964,98 @@ static void key_callback(struct SDL_Window *window, int key, int scancode, int a
                     }
                 }
             }
+        } else if (key >= SDLK_1 && key <= SDLK_9 && action == SDL_KEYDOWN && mouse_pointer_hidden && version_id >= version_id_0_5_0 && version_id <= version_id_0_11_1) {
+            int target_slot = key - SDLK_1;
+            size_t player_offset = 0, inventory_offset = 0;
+            if (version_id == version_id_0_5_0) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_5_0;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_5_0;
+            } else if (version_id == version_id_0_5_0_j) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_5_0_J;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_5_0_J;
+            } else if (version_id == version_id_0_6_0) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_6_0;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_6_0;
+            } else if (version_id == version_id_0_6_1) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_6_1;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_6_1;
+            } else if (version_id == version_id_0_7_0) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_7_0;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_7_0;
+            } else if (version_id == version_id_0_7_1) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_7_1;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_7_1;
+            } else if (version_id == version_id_0_7_2) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_7_2;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_7_2;
+            } else if (version_id == version_id_0_7_3) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_7_3;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_7_3;
+            } else if (version_id == version_id_0_7_4) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_7_4;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_7_4;
+            } else if (version_id == version_id_0_7_5) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_7_5;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_7_5;
+            } else if (version_id == version_id_0_7_6) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_7_6;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_7_6;
+            } else if (version_id == version_id_0_8_0) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_8_0;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_8_0;
+            } else if (version_id == version_id_0_8_1) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_8_1;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_8_1;
+            } else if (version_id == version_id_0_9_0) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_9_0;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_9_0;
+            } else if (version_id == version_id_0_9_1) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_9_1;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_9_1;
+            } else if (version_id == version_id_0_9_2) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_9_2;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_9_2;
+            } else if (version_id == version_id_0_9_3) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_9_3;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_9_3;
+            } else if (version_id == version_id_0_9_4) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_9_4;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_9_4;
+            } else if (version_id == version_id_0_9_5) {
+                player_offset = MINECRAFT_LOCAL_PLAYER_OFFSET_0_9_5;
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_9_5;
+            } else if (version_id == version_id_0_10_0) {
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_10_0;
+            } else if (version_id == version_id_0_10_1) {
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_10_1;
+            } else if (version_id == version_id_0_10_2) {
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_10_2;
+            } else if (version_id == version_id_0_10_3) {
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_10_3;
+            } else if (version_id == version_id_0_10_4) {
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_10_4;
+            } else if (version_id == version_id_0_10_5) {
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_10_5;
+            } else if (version_id == version_id_0_11_0) {
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_11_0;
+            } else if (version_id == version_id_0_11_1) {
+                inventory_offset = PLAYER_INVENTORY_OFFSET_0_11_1;
+            }
+            void *player = NULL;
+            if (version_id >= version_id_0_5_0 && version_id <= version_id_0_9_5) {
+                player = *(void **)((char *)ninecraft_app + player_offset);
+            } else if (version_id >= version_id_0_10_0 && version_id <= version_id_0_11_1) {
+                player = minecraft_client_get_local_player(ninecraft_app);
+            }
+            if (player) {
+                void *player_inventory = *(void **)((char *)player + inventory_offset);
+                if (player_inventory) {
+                    void (*inventory_select_slot)(void *, int) = (void (*)(void *, int))android_dlsym(handle, "_ZN9Inventory10selectSlotEi");
+                    if (inventory_select_slot) {
+                        inventory_select_slot(player_inventory, target_slot);
+                    }
+                }
+            }
         } else if (version_id >= version_id_0_1_1 && key == SDLK_ESCAPE) {
             if (action == SDL_KEYDOWN) {
                 if (version_id >= version_id_0_10_0) {
@@ -1995,6 +2087,7 @@ int main(int argc, char **argv) {
         mod_loader_execute_on_minecraft_update(ninecraft_app, version_id);
 
         audio_engine_tick();
+        glFinish(); // maybe this will fix flickering
         SDL_GL_SwapWindow(_window);
 
         while (SDL_PollEvent(&event)) {
