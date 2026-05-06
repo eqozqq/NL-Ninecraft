@@ -707,7 +707,13 @@ static void resize_callback(struct SDL_Window *window, int width, int height) {
     }
 }
 
+static bool chat_just_opened = false;
+
 static void char_callback(struct SDL_Window *window, char *codepoint) {
+    if (chat_just_opened) {
+        chat_just_opened = false;
+        return;
+    }
     if (is_keyboard_visible) {
         chat_mod_append_char(codepoint[0]);
         if (version_id >= version_id_0_6_0 && version_id <= version_id_0_7_1) {
@@ -716,6 +722,70 @@ static void char_callback(struct SDL_Window *window, char *codepoint) {
             android_string_t str;
             android_string_cstr(&str, codepoint);
             keyboard_feed_text_0_7_2(&str, false);
+        }
+    }
+}
+
+#include <unistd.h>
+
+static void (*ChatScreen_setupPositions_real)(void *__this);
+static void (*TextBox_setFocus_bool_real)(void *__this, bool focus);
+static void (*TextBox_setFocus_minecraft_real)(void *__this, void *minecraft);
+static void **vtable_TextBox = NULL;
+
+static void ChatScreen_setupPositions_hook(void *__this) {
+    ChatScreen_setupPositions_real(__this);
+    
+    if (vtable_TextBox && (TextBox_setFocus_bool_real || TextBox_setFocus_minecraft_real)) {
+        void *expected_vtable = &vtable_TextBox[2];
+        void *text_box = NULL;
+        
+        for (int i = 0; i < 0x400; i += 4) {
+            void *ptr = *(void **)((char *)__this + i);
+            if ((uintptr_t)ptr > 0x10000 && ((uintptr_t)ptr % 4) == 0) {
+                int fd[2];
+                if (pipe(fd) == 0) {
+                    if (write(fd[1], ptr, 4) == 4) {
+                        void *vtable = *(void **)ptr;
+                        if (vtable >= (void *)vtable_TextBox && vtable < (void *)((uintptr_t)vtable_TextBox + 0x100)) {
+                            text_box = ptr;
+                        } else if (ptr >= (void *)vtable_TextBox && ptr < (void *)((uintptr_t)vtable_TextBox + 0x100)) {
+                            text_box = (void *)((char *)__this + i);
+                        }
+                    }
+                    close(fd[0]);
+                    close(fd[1]);
+                    if (text_box) break;
+                }
+            }
+        }
+        
+        if (text_box) {
+            if (TextBox_setFocus_bool_real) {
+                TextBox_setFocus_bool_real(text_box, true);
+            } else if (TextBox_setFocus_minecraft_real) {
+                TextBox_setFocus_minecraft_real(text_box, ninecraft_app);
+            }
+            AppPlatform_linux$showKeyboard(NULL);
+        }
+    }
+}
+
+static void setup_chat_focus_hook() {
+    void **chat_screen_vtable = (void **)android_dlsym(handle, "_ZTV10ChatScreen");
+    void *chat_screen_setupPositions = android_dlsym(handle, "_ZN10ChatScreen14setupPositionsEv");
+    
+    vtable_TextBox = (void **)android_dlsym(handle, "_ZTV7TextBox");
+    TextBox_setFocus_bool_real = (void (*)(void *, bool))android_dlsym(handle, "_ZN7TextBox8setFocusEb");
+    TextBox_setFocus_minecraft_real = (void (*)(void *, void *))android_dlsym(handle, "_ZN7TextBox8setFocusEP9Minecraft");
+    
+    if (chat_screen_vtable && chat_screen_setupPositions && vtable_TextBox && (TextBox_setFocus_bool_real || TextBox_setFocus_minecraft_real)) {
+        for (int i = 0; i < 100; i++) {
+            if (chat_screen_vtable[i] == chat_screen_setupPositions) {
+                ChatScreen_setupPositions_real = (void (*)(void *))chat_screen_setupPositions;
+                chat_screen_vtable[i] = (void *)ChatScreen_setupPositions_hook;
+                break;
+            }
         }
     }
 }
@@ -897,6 +967,7 @@ static void key_callback(struct SDL_Window *window, int key, int scancode, int a
             }
         } else if (mouse_pointer_hidden && key == SDLK_t) {
             if (action == SDL_KEYDOWN) {
+                chat_just_opened = true;
                 if (version_id >= version_id_0_7_0 && version_id <= version_id_0_11_1) {
                     size_t minecraft_screenchooser_offset;
                     if (version_id == version_id_0_7_0) {
@@ -1634,6 +1705,7 @@ int main(int argc, char **argv) {
     so_libz = android_library_create("libz.so");
 
     handle = load_library("libminecraftpe.so");
+    setup_chat_focus_hook();
 
     if (!handle) {
         puts("libminecraftpe.so not loaded");
