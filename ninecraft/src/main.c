@@ -2202,7 +2202,17 @@ int main(int argc, char **argv) {
             if (event.type == SDL_QUIT) {
                 running = false;
             } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
-                key_callback(_window, event.key.keysym.sym, event.key.keysym.scancode, event.type, event.key.keysym.mod);
+                int key = event.key.keysym.sym;
+                if (key < 1073741824) {
+                    if (event.key.keysym.scancode >= SDL_SCANCODE_A && event.key.keysym.scancode <= SDL_SCANCODE_Z) {
+                        key = event.key.keysym.scancode - SDL_SCANCODE_A + 'a';
+                    } else if (event.key.keysym.scancode >= SDL_SCANCODE_1 && event.key.keysym.scancode <= SDL_SCANCODE_9) {
+                        key = event.key.keysym.scancode - SDL_SCANCODE_1 + '1';
+                    } else if (event.key.keysym.scancode == SDL_SCANCODE_0) {
+                        key = '0';
+                    }
+                }
+                key_callback(_window, key, event.key.keysym.scancode, event.type, event.key.keysym.mod);
             } else if (event.type == SDL_TEXTINPUT) {
                 char_callback(_window, event.text.text);
             } else if (event.type == SDL_MOUSEMOTION) {
