@@ -709,19 +709,55 @@ static void resize_callback(struct SDL_Window *window, int width, int height) {
 
 static bool chat_just_opened = false;
 
+static uint8_t util_utf8_to_cp1251(const char *utf8) {
+    uint8_t c1 = (uint8_t)utf8[0];
+    if (c1 < 0x80) return c1;
+    if (c1 == 0xd0 || c1 == 0xd1) {
+        uint8_t c2 = (uint8_t)utf8[1];
+        if (c1 == 0xd0) {
+            if (c2 == 0x81) return 0xa8; // Ё
+            if (c2 >= 0x90 && c2 <= 0xbf) return c2 + 0x70; // А-п
+        } else if (c1 == 0xd1) {
+            if (c2 == 0x91) return 0xb8; // ё
+            if (c2 >= 0x80 && c2 <= 0x8f) return c2 + 0xb0; // р-я
+        }
+    }
+    return '?';
+}
+
 static void char_callback(struct SDL_Window *window, char *codepoint) {
     if (chat_just_opened) {
         chat_just_opened = false;
         return;
     }
     if (is_keyboard_visible) {
-        chat_mod_append_char(codepoint[0]);
         if (version_id >= version_id_0_6_0 && version_id <= version_id_0_7_1) {
-            keyboard_feed_text_0_6_0(codepoint[0]);
-        } else if (version_id >= version_id_0_7_2) {
+            uint8_t c = (uint8_t)codepoint[0];
+            if (c >= 0x80) {
+                c = util_utf8_to_cp1251(codepoint);
+            }
+            chat_mod_append_char(c);
+            keyboard_feed_text_0_6_0(c);
+        } else if (version_id >= version_id_0_7_2 && version_id <= version_id_0_7_6) {
+            uint8_t c = (uint8_t)codepoint[0];
+            if (c >= 0x80) {
+                c = util_utf8_to_cp1251(codepoint);
+            }
+            chat_mod_append_char(c);
+            char buf[2] = {c, '\0'};
+            android_string_t str;
+            android_string_cstr(&str, buf);
+            keyboard_feed_text_0_7_2(&str, false);
+        } else if (version_id >= version_id_0_8_0) {
             android_string_t str;
             android_string_cstr(&str, codepoint);
             keyboard_feed_text_0_7_2(&str, false);
+        } else {
+            uint8_t c = (uint8_t)codepoint[0];
+            if (c >= 0x80) {
+                c = util_utf8_to_cp1251(codepoint);
+            }
+            chat_mod_append_char(c);
         }
     }
 }
